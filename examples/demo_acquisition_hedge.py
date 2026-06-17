@@ -168,6 +168,12 @@ def main() -> None:
 
     _show("Equity-only (SPX put-spread)", equity_only)
     _show("Combined (SPX put-spread + HYG put)", combined)
+    if combined.feasible:
+        eff = combined.expected_cost_efficiency(macro)
+        net = combined.expected_net_payoff(macro)
+        if eff is not None:
+            print(f"\n  Probability-weighted (combined): expected cost efficiency = {eff:.2f}x "
+                  f"| expected net P&L = {net:,.0f}")
     print("\n  Equity puts expire worthless in the credit event (equities rise), so an equity-only "
           "overlay\n  CANNOT hedge it; the LP-sized credit leg closes the gap. When both legs can "
           "pay, the LP instead\n  splits toward whichever is cheapest per dollar of payoff in the "

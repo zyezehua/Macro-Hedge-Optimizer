@@ -87,6 +87,26 @@ def test_adding_an_instrument_does_not_increase_cost():
     assert both.total_cost <= spx_only.total_cost + 1.0
 
 
+def test_portfolio_expected_metrics():
+    scns = _scenarios()  # both carry probabilities
+    res = optimize_portfolio([_spx(), _hyg()], scns, maturity=0.5)
+    assert res.feasible
+    exp_gross = res.expected_gross_payoff(scns)
+    # Hand-computed: sum of prob * delivered payoff.
+    manual = sum(m.probability * res.payoff_in(m.name) for m in scns)
+    assert exp_gross == pytest.approx(manual)
+    assert res.expected_net_payoff(scns) == pytest.approx(exp_gross - res.total_cost)
+    assert res.expected_cost_efficiency(scns) == pytest.approx(exp_gross / res.total_cost)
+
+
+def test_portfolio_expected_metrics_none_without_probabilities():
+    bare = [MacroScenario("s", 5_000_000, {"SPX": InstrumentShock(-0.20, 0.08)})]
+    res = optimize_portfolio([_spx()], bare, maturity=0.5)
+    assert res.expected_gross_payoff(bare) is None
+    assert res.expected_cost_efficiency(bare) is None
+    assert res.expected_net_payoff(bare) is None
+
+
 def test_portfolio_infeasible_when_target_unreachable():
     # A melt-UP that lands exactly at expiry: the put legs settle worthless, so no number of
     # contracts can pay a positive target ⇒ the LP is infeasible.

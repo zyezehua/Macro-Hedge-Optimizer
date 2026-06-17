@@ -351,10 +351,31 @@ with st.expander("Configure & run combined hedge"):
                       f"${both.total_cost:,.0f}" if both.feasible else "INFEASIBLE")
             if both.feasible:
                 st.dataframe(_leg_rows(both), width="stretch")
-                payrows = pd.DataFrame([{
-                    "Scenario": m.name, "Target": f"{m.target_payoff:,.0f}",
-                    "Combined payoff": f"{both.payoff_in(m.name):,.0f}"} for m in macro])
-                st.dataframe(payrows, width="stretch")
+
+                # Probability-weighted expected metrics (if any preset carries a probability).
+                exp_eff = both.expected_cost_efficiency(macro)
+                exp_net = both.expected_net_payoff(macro)
+                if exp_eff is not None:
+                    e1, e2 = st.columns(2)
+                    e1.metric("Exp. cost efficiency (prob-weighted)", f"{exp_eff:.2f}x")
+                    e2.metric("Exp. net P&L (prob-weighted)", f"${exp_net:,.0f}")
+
+                # Per-leg payoff contribution by scenario, with the target marked.
+                fig = go.Figure()
+                for lg in both.legs:
+                    if lg.units == 0:
+                        continue
+                    fig.add_trace(go.Bar(
+                        name=f"{lg.symbol} {lg.family_name}", x=[m.name for m in macro],
+                        y=[lg.payoff_per_unit.get(m.name, 0.0) * lg.units for m in macro]))
+                fig.add_trace(go.Scatter(
+                    name="Target", mode="markers", x=[m.name for m in macro],
+                    y=[m.target_payoff for m in macro],
+                    marker=dict(symbol="line-ew", size=40, line=dict(width=3, color="black"))))
+                fig.update_layout(barmode="stack", height=420, yaxis_title="Gross payoff ($)",
+                                  xaxis_title="Stress scenario", legend_title="Hedge leg",
+                                  title="Combined hedge payoff by scenario (stacked legs vs target)")
+                st.plotly_chart(fig, width="stretch")
             if not eq_only.feasible and both.feasible:
                 st.success(f"The equity-only overlay can't hedge every stress, but adding the "
                            f"{cr_symbol} credit leg makes the program feasible.")

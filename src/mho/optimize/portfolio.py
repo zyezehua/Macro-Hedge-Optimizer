@@ -63,6 +63,30 @@ class PortfolioResult:
     def payoff_in(self, scenario_name: str) -> float:
         return sum(leg.payoff_per_unit.get(scenario_name, 0.0) * leg.units for leg in self.legs)
 
+    def expected_gross_payoff(self, macro_scenarios: list[MacroScenario]) -> float | None:
+        """Probability-weighted expected gross payoff of the portfolio. None if no probabilities.
+
+        A residual (1 - sum P) 'no-stress' branch contributes zero gross payoff (premium is lost).
+        """
+        probs = [m.probability for m in macro_scenarios if m.probability is not None]
+        if not probs:
+            return None
+        return sum((m.probability or 0.0) * self.payoff_in(m.name) for m in macro_scenarios)
+
+    def expected_net_payoff(self, macro_scenarios: list[MacroScenario]) -> float | None:
+        """Expected gross payoff across all states minus the premium (paid in every state)."""
+        exp_gross = self.expected_gross_payoff(macro_scenarios)
+        if exp_gross is None or not math.isfinite(self.total_cost):
+            return None
+        return exp_gross - self.total_cost
+
+    def expected_cost_efficiency(self, macro_scenarios: list[MacroScenario]) -> float | None:
+        """Probability-weighted expected gross payoff divided by total premium (None if zero-cost)."""
+        exp_gross = self.expected_gross_payoff(macro_scenarios)
+        if exp_gross is None or self.total_cost <= 1.0 or not math.isfinite(self.total_cost):
+            return None
+        return exp_gross / self.total_cost
+
 
 def _build_column(inst: HedgeInstrument, macro: list[MacroScenario], maturity: float, **opt_kw):
     """Optimize one instrument's structure shape, return its premium + per-scenario unit payoffs."""
