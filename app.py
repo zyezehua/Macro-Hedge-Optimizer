@@ -26,7 +26,11 @@ from mho.instruments.option import MarketContext
 from mho.io.surface_paste import parse_surface
 from mho.optimize.optimizer import optimize_all
 from mho.pricing.implied_vol import iv_to_price, price_to_iv
-from mho.rolling.roller import compare_roll_strategies, forward_iv_from_curve
+from mho.rolling.roller import (
+    compare_roll_strategies,
+    forward_iv_from_curve,
+    roll_scenario_payoffs,
+)
 from mho.scenarios.scenario import Scenario
 
 CFG = yaml.safe_load((Path(__file__).resolve().parent / "config" / "defaults.yaml").read_text())
@@ -223,6 +227,25 @@ if st.button("▶ Run optimization", type="primary"):
     st.caption(f"Lowest-cost roll path under flat-spot carry: **{cheapest.style}** "
                f"(${cheapest.total_cost:,.0f}). Forward IV term structure taken from the surface "
                f"at moneyness {roll_moneyness:.0%}.")
+
+    # Roll payoff when the stress lands mid-program (path P&L through the scenario engine).
+    st.subheader("Roll payoff when the stress lands mid-program")
+    st.caption("Each scenario's shock is repriced on the option that is *live* at its t_shock for "
+               "every roll style — so a front-month roll near expiry shows its gap risk, while a "
+               "constant-maturity roll keeps a longer, vega-rich leg. Set a scenario's timing_years "
+               "> 0 to separate the styles (an immediate t_shock=0 leaves both rolling styles equal).")
+    roll_pay = roll_scenario_payoffs(
+        spot=spot, r=r, q=q, horizon_years=horizon, moneyness=roll_moneyness, kind="put",
+        option_tenor=roll_tenor, forward_iv=fwd_iv, surface=surface, scenarios=scenarios,
+        multiplier=mult, cm_roll_fraction=0.5, bid_ask_haircut=float(CFG["costs"]["bid_ask_haircut"]),
+        american=is_american)
+    if roll_pay:
+        paydf = pd.DataFrame([{
+            "Style": p.style, "Scenario": p.scenario, "t_shock (y)": round(p.t_shock, 2),
+            "Live maturity (y)": round(p.remaining_maturity, 3),
+            "Gross payoff": round(p.gross_payoff, 0),
+            "Payoff / cost": round(p.payoff_to_cost, 2)} for p in roll_pay])
+        st.dataframe(paydf, width="stretch")
 
 
 # ----------------------------------------------------------------------------

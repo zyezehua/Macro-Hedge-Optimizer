@@ -20,7 +20,10 @@ protection you need.
   put ratio) find the strikes that **minimize total cost subject to payoff ≥ target across all
   scenarios**, then rank families by cost / efficiency.
 - **Rolling decision**: compare a single long-dated option vs front-month and constant-maturity
-  rolls, costed from a user-provided forward IV term structure.
+  rolls on two axes — (i) structural carry cost from a user-provided forward IV term structure, and
+  (ii) the payoff each style actually delivers when a stress lands *mid-program*, repriced through
+  the scenario engine on whichever option is live at `t_shock` (so a front-month roll near expiry
+  shows its gap risk).
 - **Cross-asset hedge ratio**: map an exposure onto a different hedge instrument via beta, with
   explicit **basis risk**.
 - **Outputs**: ranked comparison table, payoff-ratio / annualized cost (bps), greeks, Plotly
@@ -53,7 +56,10 @@ streamlit run app.py
   optionality degenerates into selling unlimited premium (a tail-risk trade, not a hedge). A
   zero-/low-cost collar is still allowed; toggle `allow_net_credit` to relax further.
 - **Roll cost on a flat-spot carry basis.** Roll quotes isolate the structural time-decay cost of
-  each rolling style using the forward IV curve; path/scenario P&L is handled by the scenario engine.
+  each rolling style using the forward IV curve. The *scenario* payoff of a rolling program is
+  computed separately by repricing the option that is live at `t_shock` (correct remaining
+  maturity; strike ~constant under carry) through the scenario engine — so carry cost and
+  protection-when-it-hits are both on the table for the rolling decision.
 - **Pricing.** SPX (cash-settled, European) is priced with Black-Scholes; ETF options
   (SPY/QQQ/HYG/IWM) are American and priced with the Barone-Adesi-Whaley quadratic
   approximation, which adds the early-exercise premium analytically (validated against a CRR

@@ -22,7 +22,11 @@ from mho.crossasset.beta import CrossAssetMap, translate_scenarios
 from mho.instruments.option import MarketContext
 from mho.io.surface_paste import parse_surface
 from mho.optimize.optimizer import optimize_all
-from mho.rolling.roller import compare_roll_strategies, forward_iv_from_curve
+from mho.rolling.roller import (
+    compare_roll_strategies,
+    forward_iv_from_curve,
+    roll_scenario_payoffs,
+)
 from mho.scenarios.scenario import Scenario
 
 pd.set_option("display.width", 160)
@@ -80,6 +84,29 @@ def main() -> None:
     for q in quotes:
         print(f"  {q.style:18s} | rolls={q.num_rolls:2d} | cost/roll={q.cost_per_roll:9,.0f} "
               f"| total={q.total_cost:11,.0f}\n      {q.note}")
+
+    print("\n" + "=" * 110)
+    print("ROLL PAYOFF WHEN THE STRESS LANDS MID-PROGRAM  (t_shock = 0.24y, just before a FM expiry)")
+    print("=" * 110)
+    print("  Same stresses, but priced on the option that is LIVE at t_shock for each roll style:")
+    mid_scenarios = [
+        Scenario("Selloff -10%", spot_shock=-0.10, vol_shock=0.05, timing_years=0.24),
+        Scenario("Crash -25%", spot_shock=-0.25, vol_shock=0.12, timing_years=0.24,
+                 vol_mode="skew_twist", twist=0.10),
+    ]
+    payoffs = roll_scenario_payoffs(
+        spot=spot, r=market.r, q=market.q, horizon_years=horizon, moneyness=0.95, kind="put",
+        option_tenor=0.25, forward_iv=fwd_iv, surface=surface, scenarios=mid_scenarios,
+        multiplier=market.multiplier,
+    )
+    pay_df = pd.DataFrame([{
+        "Style": p.style, "Scenario": p.scenario, "Live maturity": f"{p.remaining_maturity:.2f}y",
+        "Gross payoff": f"{p.gross_payoff:,.0f}", "Payoff/cost": f"{p.payoff_to_cost:.2f}",
+    } for p in payoffs])
+    print(pay_df.to_string(index=False))
+    print("  -> front_month is ~at expiry here, so it holds only intrinsic (gap risk); the "
+          "constant-maturity\n     leg keeps a longer, vega-rich option. Read alongside the cost "
+          "table above to trade off carry vs protection.")
 
     print("\n" + "=" * 110)
     print("CROSS-ASSET EXAMPLE  (deal risk ~ 1.4x SPX; map exposure shocks onto SPX)")
