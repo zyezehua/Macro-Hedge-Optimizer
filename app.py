@@ -39,6 +39,13 @@ SAMPLE = (Path(__file__).resolve().parent / "examples" / "sample_surface.csv").r
 st.set_page_config(page_title="Macro Hedge Optimizer", layout="wide")
 st.title("Macro Hedge Optimizer")
 st.caption("Cost-efficiency analysis of macro overlay hedges for risk-origination transactions.")
+st.warning(
+    "**Proof-of-concept — for analysis only, not investment advice.** All quotes are user-supplied "
+    "and processed in-session (nothing is stored). Pricing/sizing use documented simplifications "
+    "(BS / Barone-Adesi-Whaley, flat-spot roll carry). Do not enter confidential data you are not "
+    "comfortable sending to a public app.",
+    icon="⚠️",
+)
 
 
 def fmt(v, nd=2):

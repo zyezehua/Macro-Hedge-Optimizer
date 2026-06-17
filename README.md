@@ -44,6 +44,19 @@ python examples/demo_acquisition_hedge.py
 streamlit run app.py
 ```
 
+## Deploy to Streamlit Community Cloud
+
+The app is deploy-ready (`requirements.txt` pinned, `runtime.txt` fixes Python 3.13):
+
+1. Push to GitHub (this repo is already public).
+2. Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
+3. **New app** → pick this repo, branch `main`, main file `app.py` → **Deploy**.
+4. Every `git push` to `main` auto-redeploys.
+
+Notes: the free tier is **public** — anyone with the link can use it. Quotes are processed
+in-session and never stored, and the app shows an in-page "not investment advice" disclaimer. To
+restrict access, set a viewer allow-list in the app's Streamlit Cloud settings, or self-host.
+
 ## Key modeling choices
 
 - **MtM payoff framing.** A hedge is monetized when the stress hits, so a scenario's payoff is the
