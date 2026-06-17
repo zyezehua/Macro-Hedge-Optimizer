@@ -79,27 +79,35 @@ def optimize_family(
     grid_points: int = 9,
     refine: bool = True,
     allow_net_credit: bool = False,
+    n_starts: int = 3,
 ) -> OptimizationResult:
     family = FAMILIES[family_key]
+    lo = [b[0] for b in family.bounds]
+    hi = [b[1] for b in family.bounds]
 
-    # 1) Coarse grid over the box-bounded parameter space.
-    axes = [np.linspace(lo, hi, grid_points) for (lo, hi) in family.bounds]
-    best_params, best_cost = None, math.inf
+    # 1) Coarse grid over the box-bounded parameter space; keep all feasible points so we can
+    #    seed the local search from several basins (the cost surface is piecewise / multimodal,
+    #    so a single restart from the global grid minimum can miss a better nearby structure).
+    axes = [np.linspace(lo[i], hi[i], grid_points) for i in range(len(family.bounds))]
+    scored = []
     for combo in itertools.product(*axes):
         c = _cost_at(family, list(combo), market, surface, scenarios, maturity, True, allow_net_credit)
-        if c < best_cost:
-            best_cost, best_params = c, list(combo)
+        if c < _INFEASIBLE:
+            scored.append((c, list(combo)))
+    scored.sort(key=lambda x: x[0])
 
-    # 2) Local refine (derivative-free; cost is piecewise in the params).
-    if refine and best_params is not None and best_cost < _INFEASIBLE:
+    best_params = list(scored[0][1]) if scored else None
+    best_cost = scored[0][0] if scored else math.inf
+
+    # 2) Multi-start local refine (derivative-free; cost is piecewise in the params).
+    if refine and scored:
         obj = lambda p: _cost_at(family, list(p), market, surface, scenarios, maturity, True, allow_net_credit)
-        out = minimize(obj, np.array(best_params), method="Nelder-Mead",
-                       options={"xatol": 1e-4, "fatol": 1e-2, "maxiter": 400})
-        if out.fun < best_cost:
-            lo = [b[0] for b in family.bounds]
-            hi = [b[1] for b in family.bounds]
-            best_params = [float(np.clip(v, lo[i], hi[i])) for i, v in enumerate(out.x)]
-            best_cost = out.fun
+        for _, seed in scored[: max(1, n_starts)]:
+            out = minimize(obj, np.array(seed), method="Nelder-Mead",
+                           options={"xatol": 1e-4, "fatol": 1e-2, "maxiter": 400})
+            if out.fun < best_cost:
+                best_cost = out.fun
+                best_params = [float(np.clip(v, lo[i], hi[i])) for i, v in enumerate(out.x)]
 
     if best_params is None or best_cost >= _INFEASIBLE:
         # Fall back to the cheapest-by-build structure so we can report infeasibility.
@@ -126,8 +134,10 @@ def optimize_all(
     grid_points: int = 9,
     refine: bool = True,
     allow_net_credit: bool = False,
+    n_starts: int = 3,
 ) -> list[OptimizationResult]:
     return [
-        optimize_family(k, market, surface, scenarios, maturity, grid_points, refine, allow_net_credit)
+        optimize_family(k, market, surface, scenarios, maturity, grid_points, refine,
+                        allow_net_credit, n_starts)
         for k in family_keys
     ]

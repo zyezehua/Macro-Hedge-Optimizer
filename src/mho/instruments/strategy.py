@@ -9,9 +9,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ..pricing.american import american_price
 from ..pricing.black_scholes import Greeks, bs_greeks, bs_price
 from ..pricing.surface import VolSurface
 from .option import MarketContext, OptionLeg
+
+
+def _price_leg(market: MarketContext, K: float, sigma: float, T: float, kind: str) -> float:
+    """Price one share, using the American (BAW) model for physically-settled ETF options."""
+    if market.american:
+        return american_price(market.spot, K, market.r, market.q, sigma, T, kind)
+    return bs_price(market.spot, K, market.r, market.q, sigma, T, kind)
 
 
 @dataclass
@@ -41,7 +49,7 @@ class Strategy:
                 total += leg.qty * intrinsic
                 continue
             sigma = surface.iv_for_strike(market.spot, leg.strike, T)
-            px = bs_price(market.spot, leg.strike, market.r, market.q, sigma, T, leg.kind)
+            px = _price_leg(market, leg.strike, sigma, T, leg.kind)
             total += leg.qty * px
         return total * market.multiplier
 

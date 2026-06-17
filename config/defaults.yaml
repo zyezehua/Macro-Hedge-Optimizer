@@ -40,4 +40,5 @@ optimizer:
   grid_points: 9               # coarse grid points per strike dimension
   moneyness_min: 0.70          # search bounds for strike moneyness (K/S)
   moneyness_max: 1.10
-  refine: true                 # local SciPy refine around best grid point
+  refine: true                 # local SciPy refine around best grid point(s)
+  n_starts: 3                  # multi-start: local refines from the N best grid seeds

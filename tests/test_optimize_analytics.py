@@ -62,5 +62,14 @@ def test_comparison_ranks_by_cost(market, surface):
     assert feas == sorted(feas)  # cheapest first
 
 
+def test_multistart_no_worse_than_single_start(market, surface):
+    # More restarts can only find an equal-or-cheaper feasible structure.
+    scs = _scenarios()
+    one = optimize_family("put_spread", market, surface, scs, maturity=0.5, n_starts=1)
+    many = optimize_family("put_spread", market, surface, scs, maturity=0.5, n_starts=5)
+    assert one.feasible and many.feasible
+    assert many.total_cost <= one.total_cost + 1.0
+
+
 def test_annualized_bps():
     assert annualized_cost_bps(500_000, 50_000_000, 0.5) == 200.0

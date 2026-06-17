@@ -7,16 +7,23 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class MarketContext:
-    """Underlying state shared by all legs of a strategy."""
+    """Underlying state shared by all legs of a strategy.
+
+    american : True for physically-settled ETF options (SPY/QQQ/HYG/IWM), priced with the
+               Barone-Adesi-Whaley early-exercise approximation. False (default) for
+               cash-settled European index options (SPX), priced with Black-Scholes.
+    """
 
     spot: float
     r: float
     q: float
     multiplier: float = 100.0
+    american: bool = False
 
     def reshock(self, spot_shock: float) -> "MarketContext":
         """Return a context with the spot moved by `spot_shock` (e.g. -0.20 = -20%)."""
-        return MarketContext(self.spot * (1.0 + spot_shock), self.r, self.q, self.multiplier)
+        return MarketContext(self.spot * (1.0 + spot_shock), self.r, self.q,
+                             self.multiplier, self.american)
 
 
 @dataclass(frozen=True)

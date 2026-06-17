@@ -54,8 +54,13 @@ streamlit run app.py
   zero-/low-cost collar is still allowed; toggle `allow_net_credit` to relax further.
 - **Roll cost on a flat-spot carry basis.** Roll quotes isolate the structural time-decay cost of
   each rolling style using the forward IV curve; path/scenario P&L is handled by the scenario engine.
-- **Pricing approximation.** SPX (cash-settled, European) is priced exactly; ETF options
-  (SPY/QQQ/HYG) are American — BS ignores the early-exercise premium (documented PoC simplification).
+- **Pricing.** SPX (cash-settled, European) is priced with Black-Scholes; ETF options
+  (SPY/QQQ/HYG/IWM) are American and priced with the Barone-Adesi-Whaley quadratic
+  approximation, which adds the early-exercise premium analytically (validated against a CRR
+  binomial tree to ~1c). Greeks remain BS analytic (documented approximation).
+- **Optimizer robustness.** The per-family search is multi-start: it scores a coarse parameter
+  grid and runs a derivative-free (Nelder-Mead) refine from the best *N* seeds, so a piecewise /
+  multimodal cost surface doesn't trap the result in a single basin.
 
 ## Layout
 

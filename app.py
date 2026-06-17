@@ -59,9 +59,11 @@ horizon = c2.number_input("Hedge horizon (years)", value=0.5, min_value=0.02, st
 r = c3.number_input("Risk-free rate r", value=float(CFG["market"]["risk_free_rate"]), step=0.005, format="%.3f")
 q = c3.number_input("Dividend yield q", value=float(inst["div_yield"]), step=0.005, format="%.3f")
 mult = c4.number_input("Contract multiplier", value=float(CFG["market"]["contract_multiplier"]), step=1.0)
-market = MarketContext(spot=spot, r=r, q=q, multiplier=mult)
-if not inst.get("european", True):
-    c4.caption("⚠️ ETF options are American; BS is a PoC approximation (ignores early exercise).")
+is_american = not inst.get("european", True)
+market = MarketContext(spot=spot, r=r, q=q, multiplier=mult, american=is_american)
+if is_american:
+    c4.caption("⚠️ ETF options are American — priced with the Barone-Adesi-Whaley "
+               "early-exercise approximation (greeks still BS).")
 
 
 # ----------------------------------------------------------------------------
@@ -167,7 +169,8 @@ if st.button("▶ Run optimization", type="primary"):
 
     results = optimize_all(chosen, market, surface, scenarios, maturity=opt_maturity,
                            grid_points=int(CFG["optimizer"]["grid_points"]),
-                           refine=bool(CFG["optimizer"]["refine"]), allow_net_credit=allow_credit)
+                           refine=bool(CFG["optimizer"]["refine"]), allow_net_credit=allow_credit,
+                           n_starts=int(CFG["optimizer"].get("n_starts", 3)))
     comp = build_comparison(results, hedged_notional=notional, horizon_years=horizon,
                             probabilities={s.name: s.probability for s in scenarios
                                            if s.probability is not None} or None)
