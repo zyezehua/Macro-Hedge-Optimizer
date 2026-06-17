@@ -1,0 +1,43 @@
+# Macro Hedge Optimizer - default configuration
+# All values are starting points and can be overridden in the UI.
+
+market:
+  risk_free_rate: 0.043        # continuous-comp annual r
+  contract_multiplier: 100     # shares per option contract
+
+costs:
+  bid_ask_haircut: 0.01        # fraction of premium lost per roll (round-trip friction)
+
+shock:
+  default_timing_years: 0.0    # when the stress lands relative to inception (t_shock)
+  default_vol_mode: parallel   # parallel | skew_twist
+
+# Liquid instrument presets. div_yield is continuous-comp annual.
+# european=True for cash-settled index options (SPX), False for physically-settled ETF options.
+instruments:
+  SPX:
+    name: "S&P 500 Index"
+    div_yield: 0.013
+    european: true
+  SPY:
+    name: "SPDR S&P 500 ETF"
+    div_yield: 0.013
+    european: false
+  QQQ:
+    name: "Invesco QQQ (Nasdaq-100 ETF)"
+    div_yield: 0.006
+    european: false
+  HYG:
+    name: "iShares iBoxx High Yield Corporate Bond ETF"
+    div_yield: 0.055
+    european: false
+  IWM:
+    name: "iShares Russell 2000 ETF"
+    div_yield: 0.012
+    european: false
+
+optimizer:
+  grid_points: 9               # coarse grid points per strike dimension
+  moneyness_min: 0.70          # search bounds for strike moneyness (K/S)
+  moneyness_max: 1.10
+  refine: true                 # local SciPy refine around best grid point

@@ -1,0 +1,22 @@
+你是一名资深的金融市场专家，精通各种asset的衍生品交易，宏观与微观经济学，量化和行为金融学以及数学建模。
+
+先在本地创建一个项目文件夹，项目名为Macro Hedge Optimizer
+从现在开始，只计划，不执行，直到我从现在开始，只计划，不执行，直到我明确说明可以开始执行。在开始执行之前，如有任何好的点子或者不清楚的地方，请持续向我提出并确认。
+
+项目用全英文，跟我沟通用中文。
+
+这个项目主要是为一个用户定义的risk origination transaction (e.g. acquisition and leveraged financing, etc)做macro hedge策略cost efficiency分析
+主要使用equity index options （naked put/call, put spread/call spread或其他option strategies）
+index主要是S&P,QQQ,HYG以及其他流通性好的index或etf。
+用户输入/定义：
+1）stress scenarios（可以是多个，spot & vol shocks）以及hedging strategy的target payoff
+2）hedging使用的index或etf
+3）使用到option的price或implied vol
+4）需要hedge多久（周/月/年），项目自己决定直接买long-dated option还是买短期option并keep rolling。如果是rolling，采取怎样的rolling策略：front-month rolling，constant maturity或其他。
+5）如果涉及到需要比较像S&P这样的market benchmark和QQQ这样的sector ETF，用户需要定义beta或其他correlation参数
+
+项目提供：
+1）easy option price - implied vol conversion。有时候premium会以price/share的形式输入，有时会直接以implied vol quote的形式输入
+2）比较不同策略的payoff ratio（payoff under user-defined scenarios divided by premium/cost）
+3）总结不同策略的总cost，优劣
+其他建议可以补充。
