@@ -26,11 +26,13 @@ from mho.instruments.option import MarketContext
 from mho.io.surface_paste import parse_surface
 from mho.optimize.optimizer import optimize_all
 from mho.pricing.implied_vol import iv_to_price, price_to_iv
+from mho.optimize.portfolio import HedgeInstrument, optimize_portfolio
 from mho.rolling.roller import (
     compare_roll_strategies,
     forward_iv_from_curve,
     roll_scenario_payoffs,
 )
+from mho.scenarios.library import HISTORICAL_STRESSES, asset_class, build_macro_scenario
 from mho.scenarios.scenario import Scenario
 
 CFG = yaml.safe_load((Path(__file__).resolve().parent / "config" / "defaults.yaml").read_text())
@@ -124,7 +126,29 @@ default_scen = pd.DataFrame([
     {"name": "Crash -25%", "spot_shock": -0.25, "vol_shock": 0.12, "target_payoff": 35_000_000,
      "timing_years": 0.0, "vol_mode": "skew_twist", "twist": 0.10, "probability": 0.05},
 ])
-scen_df = st.data_editor(default_scen, num_rows="dynamic", width="stretch",
+if "scen_seed" not in st.session_state:
+    st.session_state["scen_seed"] = default_scen
+
+# Historical preset loader — append a real crisis as a scenario row, using the shock that matches
+# the selected instrument's asset class (equity index vs HY credit ETF).
+pc = st.columns([3, 2, 2])
+preset_key = pc[0].selectbox("Historical stress preset", list(HISTORICAL_STRESSES),
+                             format_func=lambda k: HISTORICAL_STRESSES[k].name)
+preset_target = pc[1].number_input("Preset target payoff ($)", value=35_000_000.0, step=1e6,
+                                   format="%.0f")
+if pc[2].button("➕ Add preset row"):
+    tpl = HISTORICAL_STRESSES[preset_key]
+    sh = tpl.credit if asset_class(symbol) == "credit" else tpl.equity
+    new_row = pd.DataFrame([{
+        "name": f"{tpl.name} [{symbol}]", "spot_shock": sh.spot_shock, "vol_shock": sh.vol_shock,
+        "target_payoff": preset_target, "timing_years": 0.0, "vol_mode": sh.vol_mode,
+        "twist": sh.twist, "probability": None}])
+    st.session_state["scen_seed"] = pd.concat([st.session_state["scen_seed"], new_row],
+                                              ignore_index=True)
+st.caption(f"_{HISTORICAL_STRESSES[preset_key].note}_")
+
+scen_df = st.data_editor(st.session_state["scen_seed"], num_rows="dynamic", width="stretch",
+                         key="scen_editor",
                          column_config={"vol_mode": st.column_config.SelectboxColumn(
                              options=["parallel", "skew_twist"])})
 
@@ -253,6 +277,90 @@ if st.button("▶ Run optimization", type="primary"):
             "Gross payoff": round(p.gross_payoff, 0),
             "Payoff / cost": round(p.payoff_to_cost, 2)} for p in roll_pay])
         st.dataframe(paydf, width="stretch")
+
+
+# ----------------------------------------------------------------------------
+# 5b. Combined cross-asset hedge (equity + credit leg)
+# ----------------------------------------------------------------------------
+st.header("5b · Combined cross-asset hedge")
+st.caption("A risk-origination warehouse carries **both** equity and credit-spread risk. Equity "
+           "puts can't hedge an idiosyncratic HY credit event. Add a credit leg (e.g. HYG) and let "
+           "a linear program size the two instruments jointly to meet each historical stress at "
+           "minimum cost.")
+HYG_SURFACE = ("Moneyness,0.25,0.5,1.0\n0.80,0.24,0.23,0.22\n0.90,0.20,0.20,0.20\n"
+               "1.00,0.17,0.17,0.18\n1.10,0.16,0.17,0.18\n")
+with st.expander("Configure & run combined hedge"):
+    enable_combined = st.checkbox("Enable combined cross-asset hedge")
+    gc = st.columns(4)
+    eq_family = gc[0].selectbox("Equity leg family", ["put_spread", "naked_put", "put_ratio"],
+                                format_func=lambda k: FAMILIES[k].name)
+    cr_symbol = gc[1].selectbox("Credit instrument", ["HYG", "JNK", "LQD"], index=0)
+    cr_spot = gc[2].number_input("Credit spot", value=78.0, min_value=0.01, step=1.0)
+    cr_q = gc[3].number_input("Credit div yield", value=0.055, step=0.005, format="%.3f")
+    cr_surf_text = st.text_area("Credit instrument vol surface (Moneyness × Maturity)",
+                                value=HYG_SURFACE, height=140)
+    st.caption("Pick historical stresses and the portfolio-level target each must deliver "
+               "(equity + credit shocks are taken from the preset by asset class).")
+    preset_targets = st.data_editor(
+        pd.DataFrame([
+            {"preset": "q4_2018", "target_payoff": 20_000_000, "probability": 0.12},
+            {"preset": "gfc_2008", "target_payoff": 30_000_000, "probability": 0.04},
+        ]),
+        num_rows="dynamic", width="stretch",
+        column_config={"preset": st.column_config.SelectboxColumn(
+            options=list(HISTORICAL_STRESSES))})
+
+    if enable_combined and st.button("▶ Run combined hedge"):
+        try:
+            cr_surface = parse_surface(cr_surf_text)
+        except Exception as e:  # noqa: BLE001
+            st.error(f"Could not parse credit surface: {e}")
+            st.stop()
+        macro = []
+        for _, row in preset_targets.iterrows():
+            key = row.get("preset")
+            if key not in HISTORICAL_STRESSES:
+                continue
+            prob = row.get("probability")
+            macro.append(build_macro_scenario(
+                HISTORICAL_STRESSES[key], float(row["target_payoff"]), [symbol, cr_symbol],
+                probability=None if prob is None or (isinstance(prob, float) and np.isnan(prob))
+                else float(prob)))
+        if not macro:
+            st.warning("Add at least one preset stress with a target.")
+        else:
+            eq_inst = HedgeInstrument(symbol, market, surface, eq_family)
+            cr_inst = HedgeInstrument(cr_symbol,
+                                      MarketContext(cr_spot, r, cr_q, mult,
+                                                    american=not CFG["instruments"].get(
+                                                        cr_symbol, {}).get("european", False)),
+                                      cr_surface, "naked_put")
+            eq_only = optimize_portfolio([eq_inst], macro, maturity=opt_maturity)
+            both = optimize_portfolio([eq_inst, cr_inst], macro, maturity=opt_maturity)
+
+            def _leg_rows(res):
+                return pd.DataFrame([{
+                    "Symbol": lg.symbol, "Structure": lg.family_name,
+                    "Strikes": ", ".join(f"{k}={v:.1f}" for k, v in lg.strikes.items()),
+                    "Contracts": lg.units, "Cost": round(lg.total_cost, 0)} for lg in res.legs])
+
+            m1, m2 = st.columns(2)
+            m1.metric(f"Equity-only ({symbol})",
+                      f"${eq_only.total_cost:,.0f}" if eq_only.feasible else "INFEASIBLE")
+            m2.metric(f"Combined ({symbol} + {cr_symbol})",
+                      f"${both.total_cost:,.0f}" if both.feasible else "INFEASIBLE")
+            if both.feasible:
+                st.dataframe(_leg_rows(both), width="stretch")
+                payrows = pd.DataFrame([{
+                    "Scenario": m.name, "Target": f"{m.target_payoff:,.0f}",
+                    "Combined payoff": f"{both.payoff_in(m.name):,.0f}"} for m in macro])
+                st.dataframe(payrows, width="stretch")
+            if not eq_only.feasible and both.feasible:
+                st.success(f"The equity-only overlay can't hedge every stress, but adding the "
+                           f"{cr_symbol} credit leg makes the program feasible.")
+            elif eq_only.feasible and both.feasible and both.total_cost < eq_only.total_cost - 1:
+                st.success(f"Adding the {cr_symbol} credit leg lowers total cost by "
+                           f"${eq_only.total_cost - both.total_cost:,.0f}.")
 
 
 # ----------------------------------------------------------------------------

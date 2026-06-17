@@ -22,6 +22,9 @@ from mho.crossasset.beta import CrossAssetMap, translate_scenarios
 from mho.instruments.option import MarketContext
 from mho.io.surface_paste import parse_surface
 from mho.optimize.optimizer import optimize_all
+from mho.optimize.portfolio import HedgeInstrument, optimize_portfolio
+from mho.scenarios.library import HISTORICAL_STRESSES, build_macro_scenario
+from mho.scenarios.macro import InstrumentShock, MacroScenario
 from mho.rolling.roller import (
     compare_roll_strategies,
     forward_iv_from_curve,
@@ -116,6 +119,59 @@ def main() -> None:
     for s0, s1 in zip(scenarios, translated):
         print(f"  {s0.name:14s}: exposure {s0.spot_shock:+.0%}  ->  SPX {s1.spot_shock:+.1%}")
     print(f"  R^2 = {xmap.r_squared:.2f} | basis risk (unhedgeable) = {xmap.basis_risk:.0%}")
+
+    print("\n" + "=" * 110)
+    print("COMBINED CROSS-ASSET HEDGE  (equity SPX put-spread + credit HYG put, historical stresses)")
+    print("=" * 110)
+    # The warehouse carries BOTH equity and credit-spread risk; hedge with two instruments and let
+    # the optimizer split protection toward the cheaper-per-payoff leg in each crisis.
+    hyg_surface = parse_surface(
+        "Moneyness,0.25,0.5,1.0\n"
+        "0.80,0.24,0.23,0.22\n0.90,0.20,0.20,0.20\n1.00,0.17,0.17,0.18\n1.10,0.16,0.17,0.18\n")
+    spx_inst = HedgeInstrument("SPX", market, surface, "put_spread")
+    hyg_inst = HedgeInstrument("HYG", MarketContext(78.0, market.r, 0.055, 100.0, american=True),
+                               hyg_surface, "naked_put")
+    # Stress lands at expiry (terminal intrinsic) so an out-of-the-money leg pays nothing — this
+    # is what makes the two channels separable and forces the optimizer to use both instruments.
+    # The key point: equity puts CANNOT hedge an idiosyncratic HY credit event, so the credit leg
+    # earns its place even though equity puts alone would cover the equity-led drawdown.
+    macro = [
+        # Equity-led drawdown (HYG barely moves) ⇒ only the SPX leg pays.
+        build_macro_scenario(HISTORICAL_STRESSES["q4_2018"], 20_000_000, ["SPX", "HYG"],
+                             timing_years=horizon, probability=0.12),
+        # HY credit event: spreads blow out while equities grind higher (risk-on in stocks, stress
+        # isolated to credit, à la 2015–16 HY energy) ⇒ every SPX put expires worthless, so only the
+        # HYG leg can pay and the credit hedge becomes indispensable.
+        MacroScenario("HY credit event", 18_000_000,
+                      {"SPX": InstrumentShock(0.06, 0.0),
+                       "HYG": InstrumentShock(-0.22, 0.20, "skew_twist", 0.10)},
+                      timing_years=horizon, probability=0.06),
+    ]
+    print("  Stresses (equity / credit shocks per instrument):")
+    for m in macro:
+        eq, cr = m.shocks["SPX"], m.shocks["HYG"]
+        print(f"    {m.name:22s} target {m.target_payoff/1e6:4.0f}mm | "
+              f"SPX {eq.spot_shock:+.0%}/{eq.vol_shock:+.0%}vol  HYG {cr.spot_shock:+.0%}/{cr.vol_shock:+.0%}vol")
+    equity_only = optimize_portfolio([spx_inst], macro, maturity=horizon)
+    combined = optimize_portfolio([spx_inst, hyg_inst], macro, maturity=horizon)
+
+    def _show(title, res):
+        status = "FEASIBLE" if res.feasible else "INFEASIBLE"
+        cost = f"{res.total_cost:,.0f}" if res.feasible else "—"
+        print(f"\n  {title}: {status} | total cost = {cost}")
+        for leg in res.legs:
+            sk = ", ".join(f"{k}={v:.1f}" for k, v in leg.strikes.items())
+            print(f"      {leg.symbol:4s} {leg.family_name:12s} {leg.units:7,d} contracts | "
+                  f"cost {leg.total_cost:12,.0f} | {sk}")
+        if not res.feasible:
+            print(f"      -> {res.reason}")
+
+    _show("Equity-only (SPX put-spread)", equity_only)
+    _show("Combined (SPX put-spread + HYG put)", combined)
+    print("\n  Equity puts expire worthless in the credit event (equities rise), so an equity-only "
+          "overlay\n  CANNOT hedge it; the LP-sized credit leg closes the gap. When both legs can "
+          "pay, the LP instead\n  splits toward whichever is cheapest per dollar of payoff in the "
+          "binding scenario.")
 
 
 if __name__ == "__main__":

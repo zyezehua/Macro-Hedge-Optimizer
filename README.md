@@ -26,6 +26,13 @@ protection you need.
   shows its gap risk).
 - **Cross-asset hedge ratio**: map an exposure onto a different hedge instrument via beta, with
   explicit **basis risk**.
+- **Historical stress library**: one-click presets for real crises (2008 GFC, 2020 COVID, 2022
+  rate shock, 2018 Q4) with *joint* equity + HY-credit shock numbers.
+- **Combined cross-asset hedge**: a warehouse carries equity *and* credit-spread risk, and equity
+  puts can't hedge an idiosyncratic HY credit event. Size an equity leg (SPX) and a credit leg
+  (HYG) **jointly via a linear program** — minimize total premium s.t. the *summed* payoff meets
+  each scenario's target — so the optimizer splits protection toward the cheapest leg per scenario
+  and flags when an equity-only overlay is simply infeasible.
 - **Outputs**: ranked comparison table, payoff-ratio / annualized cost (bps), greeks, Plotly
   payoff-profile overlay, CSV export.
 
@@ -89,8 +96,9 @@ config/defaults.yaml   Rates, multipliers, instrument presets, optimizer setting
 src/mho/
   pricing/             Black-Scholes, implied-vol solver, vol surface
   instruments/         Option legs, multi-leg strategies, parametric family catalog
-  scenarios/           Scenario definition + shock/repricing engine
-  optimize/            Analytic sizer + per-family optimizer
+  scenarios/           Scenario definition + shock/repricing engine; multi-factor macro
+                       scenarios + historical stress library
+  optimize/            Analytic sizer, per-family optimizer, LP cross-asset portfolio optimizer
   rolling/             Long-dated vs front-month vs constant-maturity roll costing
   crossasset/          Beta mapping + basis risk
   analytics/           Cost-efficiency metrics + comparison/ranking
