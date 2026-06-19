@@ -27,7 +27,9 @@ protection you need.
 - **Cross-asset hedge ratio**: map an exposure onto a different hedge instrument via beta, with
   explicit **basis risk**.
 - **Historical stress library**: one-click presets for real crises (2008 GFC, 2020 COVID, 2022
-  rate shock, 2018 Q4) with *joint* equity + HY-credit shock numbers.
+  rate shock, 2018 Q4) with *joint* equity + HY-credit shock numbers, plus a **custom stress
+  library** — define your own equity+credit presets and save/restore them as JSON (kept client-side;
+  nothing is stored server-side).
 - **Combined cross-asset hedge**: a warehouse carries equity *and* credit-spread risk, and equity
   puts can't hedge an idiosyncratic HY credit event. Size an equity leg (SPX) and a credit leg
   (HYG) **jointly via a linear program** — minimize total premium s.t. the *summed* payoff meets

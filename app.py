@@ -32,7 +32,14 @@ from mho.rolling.roller import (
     forward_iv_from_curve,
     roll_scenario_payoffs,
 )
-from mho.scenarios.library import HISTORICAL_STRESSES, asset_class, build_macro_scenario
+from mho.scenarios.library import (
+    HISTORICAL_STRESSES,
+    StressTemplate,
+    asset_class,
+    build_macro_scenario,
+)
+from mho.scenarios.library_io import dump_templates, load_templates
+from mho.scenarios.macro import InstrumentShock
 from mho.scenarios.scenario import Scenario
 
 CFG = yaml.safe_load((Path(__file__).resolve().parent / "config" / "defaults.yaml").read_text())
@@ -120,6 +127,55 @@ with st.expander("Premium ⇄ implied-vol converter"):
 st.header("3 · Stress scenarios")
 st.caption("Spot/vol shocks plus the gross payoff the hedge must deliver in each. "
            "vol_shock and twist are in vol points (decimals). probability is optional.")
+
+# Custom stress library: define your own equity+credit presets, save them as JSON (nothing is
+# stored server-side), and re-upload to restore. Custom presets merge with the historical ones.
+st.session_state.setdefault("custom_stresses", {})
+with st.expander("Custom stress library (define / save / load your own presets)"):
+    up = st.file_uploader("Load a saved stress library (JSON)", type="json", key="stress_upload")
+    if up is not None:
+        try:
+            loaded = load_templates(up.getvalue().decode("utf-8"))
+            st.session_state["custom_stresses"].update(loaded)
+            st.success(f"Loaded {len(loaded)} custom stress(es): {', '.join(loaded)}.")
+        except ValueError as e:
+            st.error(str(e))
+
+    st.markdown("**Define a new stress** (equity = index leg, credit = HY ETF leg):")
+    dc = st.columns(4)
+    new_key = dc[0].text_input("Key (id)", value="my_stress")
+    new_name = dc[1].text_input("Display name", value="My Stress")
+    new_note = dc[2].text_input("Note", value="")
+    modes = ["parallel", "skew_twist"]
+    eq = st.columns(4)
+    eq_spot = eq[0].number_input("Equity spot shock", value=-0.30, step=0.01, format="%.2f")
+    eq_vol = eq[1].number_input("Equity vol shock", value=0.20, step=0.01, format="%.2f")
+    eq_mode = eq[2].selectbox("Equity vol mode", modes, key="eqmode")
+    eq_twist = eq[3].number_input("Equity twist", value=0.10, step=0.01, format="%.2f")
+    cr = st.columns(4)
+    cr_spot_s = cr[0].number_input("Credit spot shock", value=-0.18, step=0.01, format="%.2f")
+    cr_vol_s = cr[1].number_input("Credit vol shock", value=0.12, step=0.01, format="%.2f")
+    cr_mode = cr[2].selectbox("Credit vol mode", modes, key="crmode")
+    cr_twist = cr[3].number_input("Credit twist", value=0.05, step=0.01, format="%.2f")
+    if st.button("💾 Save stress to session library"):
+        if not new_key.strip() or not new_name.strip():
+            st.warning("Key and display name are required.")
+        else:
+            st.session_state["custom_stresses"][new_key.strip()] = StressTemplate(
+                new_key.strip(), new_name.strip(),
+                equity=InstrumentShock(eq_spot, eq_vol, eq_mode, eq_twist),
+                credit=InstrumentShock(cr_spot_s, cr_vol_s, cr_mode, cr_twist),
+                note=new_note.strip())
+            st.success(f"Saved '{new_key.strip()}' to the session library.")
+    if st.session_state["custom_stresses"]:
+        st.download_button(
+            "⬇ Download custom stress library (JSON)",
+            dump_templates(st.session_state["custom_stresses"]).encode(),
+            file_name="custom_stresses.json", mime="application/json")
+        st.caption("In session: " + ", ".join(st.session_state["custom_stresses"]))
+
+# Historical presets + any custom stresses saved this session.
+STRESS_LIB = {**HISTORICAL_STRESSES, **st.session_state["custom_stresses"]}
 default_scen = pd.DataFrame([
     {"name": "Selloff -10%", "spot_shock": -0.10, "vol_shock": 0.05, "target_payoff": 15_000_000,
      "timing_years": 0.0, "vol_mode": "parallel", "twist": 0.0, "probability": 0.20},
@@ -132,12 +188,12 @@ if "scen_seed" not in st.session_state:
 # Historical preset loader — append a real crisis as a scenario row, using the shock that matches
 # the selected instrument's asset class (equity index vs HY credit ETF).
 pc = st.columns([3, 2, 2])
-preset_key = pc[0].selectbox("Historical stress preset", list(HISTORICAL_STRESSES),
-                             format_func=lambda k: HISTORICAL_STRESSES[k].name)
+preset_key = pc[0].selectbox("Stress preset (historical + custom)", list(STRESS_LIB),
+                             format_func=lambda k: STRESS_LIB[k].name)
 preset_target = pc[1].number_input("Preset target payoff ($)", value=35_000_000.0, step=1e6,
                                    format="%.0f")
 if pc[2].button("➕ Add preset row"):
-    tpl = HISTORICAL_STRESSES[preset_key]
+    tpl = STRESS_LIB[preset_key]
     sh = tpl.credit if asset_class(symbol) == "credit" else tpl.equity
     new_row = pd.DataFrame([{
         "name": f"{tpl.name} [{symbol}]", "spot_shock": sh.spot_shock, "vol_shock": sh.vol_shock,
@@ -145,7 +201,7 @@ if pc[2].button("➕ Add preset row"):
         "twist": sh.twist, "probability": None}])
     st.session_state["scen_seed"] = pd.concat([st.session_state["scen_seed"], new_row],
                                               ignore_index=True)
-st.caption(f"_{HISTORICAL_STRESSES[preset_key].note}_")
+st.caption(f"_{STRESS_LIB[preset_key].note}_")
 
 scen_df = st.data_editor(st.session_state["scen_seed"], num_rows="dynamic", width="stretch",
                          key="scen_editor",
@@ -308,7 +364,7 @@ with st.expander("Configure & run combined hedge"):
         ]),
         num_rows="dynamic", width="stretch",
         column_config={"preset": st.column_config.SelectboxColumn(
-            options=list(HISTORICAL_STRESSES))})
+            options=list(STRESS_LIB))})
 
     if enable_combined and st.button("▶ Run combined hedge"):
         try:
@@ -319,11 +375,11 @@ with st.expander("Configure & run combined hedge"):
         macro = []
         for _, row in preset_targets.iterrows():
             key = row.get("preset")
-            if key not in HISTORICAL_STRESSES:
+            if key not in STRESS_LIB:
                 continue
             prob = row.get("probability")
             macro.append(build_macro_scenario(
-                HISTORICAL_STRESSES[key], float(row["target_payoff"]), [symbol, cr_symbol],
+                STRESS_LIB[key], float(row["target_payoff"]), [symbol, cr_symbol],
                 probability=None if prob is None or (isinstance(prob, float) and np.isnan(prob))
                 else float(prob)))
         if not macro:
